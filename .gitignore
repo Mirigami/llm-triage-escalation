@@ -3,4 +3,4 @@ __pycache__/
 .env
 .venv/
 venv/
-pilot.jsonl
+.DS_Store
