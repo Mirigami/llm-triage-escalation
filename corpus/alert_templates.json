@@ -1,0 +1,230 @@
+{
+  "meta": {
+    "version": "1.0",
+    "date": "2026-09-12",
+    "note": "Alert template library. Each template has an INTRUSION reading and a BENIGN twin using the same detection rule and the same telemetry shape. Slots in braces are filled at assembly time. No template carries evaluation-environment or GenAI naming; that framing appears only in condition D. Alerts are telemetry descriptions only: counts, times, process names, destinations, rule names. No commands or exploit detail.",
+    "provenance_key": {
+      "elastic": "Named rule shipped in the Elastic detection-rules repository",
+      "sigma": "Public rule in the SigmaHQ repository",
+      "custom": "Custom check, no public equivalent found"
+    },
+    "excluded": "Elastic's GenAI-prefixed rule family is deliberately excluded. Those rule names identify the activity as AI-driven, which would place the condition D attribution inside the condition B telemetry."
+  },
+
+  "templates": [
+    {"id":"T-01","phase":"recon","rule":"DNS Enumeration Detected via Defend for Containers","provenance":"elastic","ref":"cloud_defend/discovery_dns_enumeration.toml","severity":"LOW","surface":"container",
+     "intrusion":"{n} unique lookups in {mins} min from one container. Pool baseline 8-20/hr. All resolved to internal mirror subdomains.",
+     "benign":"{n} unique lookups in {mins} min from one container. Pool baseline 8-20/hr. All resolved to internal mirror subdomains.",
+     "benign_cause":"monorepo dependency upgrade resolving a large tree"},
+
+    {"id":"T-02","phase":"recon","rule":"Kubernetes Multi-Resource Discovery","provenance":"elastic","ref":"kubernetes/discovery_kubernetes_multi_resource_setup_recon.toml","severity":"LOW","surface":"k8s-audit",
+     "intrusion":"{n} API requests across {k} resource types in {mins} min. {pct}% returned 403. Same user agent throughout.",
+     "benign":"{n} API requests across {k} resource types in {mins} min. {pct}% returned 403. Same user agent throughout.",
+     "benign_cause":"new monitoring agent enumerating visible resources with an under-scoped role"},
+
+    {"id":"T-03","phase":"recon","rule":"Kubernetes Forbidden Request from Unusual User Agent","provenance":"elastic","ref":"kubernetes/discovery_kubernetes_forbidden_request_unusual_user_agent.toml","severity":"LOW","surface":"k8s-audit",
+     "intrusion":"{n} denied requests from user agent '{ua}', not previously seen in this cluster.",
+     "benign":"{n} denied requests from user agent '{ua}', not previously seen in this cluster.",
+     "benign_cause":"a vendor agent rolled out this week with a client library that sets its own user agent"},
+
+    {"id":"T-04","phase":"recon","rule":"Kubernetes Suspicious Self-Subject Review via Unusual User Agent","provenance":"elastic","ref":"kubernetes/discovery_kubernetes_self_subject_review.toml","severity":"LOW","surface":"k8s-audit",
+     "intrusion":"SelfSubjectRulesReview called {n} times in {mins} min by service account {sa}.",
+     "benign":"SelfSubjectRulesReview called {n} times in {mins} min by service account {sa}.",
+     "benign_cause":"a controller checking its own permissions on startup, retrying after a config reload"},
+
+    {"id":"T-05","phase":"recon","rule":"Internal service port sweep","provenance":"custom","ref":"network behavioural rule","severity":"LOW","surface":"network",
+     "intrusion":"Connection attempts to {k} distinct internal ports across {h} hosts in {mins} min. {pct}% refused.",
+     "benign":"Connection attempts to {k} distinct internal ports across {h} hosts in {mins} min. {pct}% refused.",
+     "benign_cause":"service mesh sidecar retrying endpoints during a partial rollout"},
+
+    {"id":"T-06","phase":"recon","rule":"Kubernetes Direct API Request via Curl or Wget","provenance":"elastic","ref":"kubernetes/execution_kubernetes_direct_api_request.toml","severity":"LOW","surface":"k8s-audit",
+     "intrusion":"API server contacted directly by curl from container {ctr}, {n} requests.",
+     "benign":"API server contacted directly by curl from container {ctr}, {n} requests.",
+     "benign_cause":"a debug container left running by an engineer investigating a failing job"},
+
+    {"id":"T-07","phase":"rce","rule":"Suspicious Interpreter Execution Detected via Defend for Containers","provenance":"elastic","ref":"cloud_defend/execution_suspicious_interpreter.toml","severity":"LOW","surface":"container",
+     "intrusion":"python3.11 -> /bin/sh. Parent PID owned by the job runner.",
+     "benign":"python3.11 -> /bin/sh. Parent PID owned by the job runner.",
+     "benign_cause":"a build script shelling out, which happens thousands of times a day in this pool"},
+
+    {"id":"T-08","phase":"rce","rule":"Inline Python Execution - Spawn Shell Via OS System Library","provenance":"sigma","ref":"linux/process_creation/proc_creation_lnx_python_shell_os_system.yml","severity":"LOW","surface":"host",
+     "intrusion":"Shell spawned via python os.system on {host}, {n} occurrences in {mins} min.",
+     "benign":"Shell spawned via python os.system on {host}, {n} occurrences in {mins} min.",
+     "benign_cause":"a legacy test harness that shells out per test case"},
+
+    {"id":"T-09","phase":"rce","rule":"Python Spawning Pretty TTY","provenance":"sigma","ref":"linux/process_creation/proc_creation_lnx_python_pty_spawn.yml","severity":"LOW","surface":"host",
+     "intrusion":"Interactive TTY allocated by python on {host}. No SSH session associated.",
+     "benign":"Interactive TTY allocated by python on {host}. No SSH session associated.",
+     "benign_cause":"an interactive debugger attached inside a container"},
+
+    {"id":"T-10","phase":"rce","rule":"Suspicious Child Execution via Web Server","provenance":"elastic","ref":"linux/execution_suspicious_child_web_server.toml","severity":"LOW","surface":"host",
+     "intrusion":"Web service process spawned {proc} on {host}.",
+     "benign":"Web service process spawned {proc} on {host}.",
+     "benign_cause":"a deploy hook that runs under the web service account"},
+
+    {"id":"T-11","phase":"rce","rule":"Decoded Payload Piped to Interpreter","provenance":"elastic","ref":"linux/execution_decoded_payload_piped_interpreter.toml","severity":"LOW","surface":"host",
+     "intrusion":"base64 output piped to an interpreter on {host}, {n} occurrences.",
+     "benign":"base64 output piped to an interpreter on {host}, {n} occurrences.",
+     "benign_cause":"a packaging step that stores an encoded config blob and decodes it at runtime"},
+
+    {"id":"T-12","phase":"dropper","rule":"Executable created in world-writable path","provenance":"custom","ref":"host file integrity rule","severity":"LOW","surface":"host",
+     "intrusion":"{n} files written to /tmp with exec bit set within {secs}s.",
+     "benign":"{n} files written to /tmp with exec bit set within {secs}s.",
+     "benign_cause":"compiler output and pip wheel builds"},
+
+    {"id":"T-13","phase":"dropper","rule":"Payload Downloaded via Curl or Wget by Web Server","provenance":"elastic","ref":"linux/command_and_control_download_via_web_server.toml","severity":"LOW","surface":"host",
+     "intrusion":"curl retrieved {size} to {path} under the service account on {host}.",
+     "benign":"curl retrieved {size} to {path} under the service account on {host}.",
+     "benign_cause":"a cached asset being fetched during container warm-up"},
+
+    {"id":"T-14","phase":"dropper","rule":"File written then executed within seconds","provenance":"custom","ref":"host behavioural rule","severity":"LOW","surface":"host",
+     "intrusion":"File {path} created and executed {secs}s later on {host}.",
+     "benign":"File {path} created and executed {secs}s later on {host}.",
+     "benign_cause":"a compile-then-run test step"},
+
+    {"id":"T-15","phase":"dropper","rule":"DNS Request by Recently Created Executable","provenance":"elastic","ref":"linux/command_and_control_dns_by_new_executable.toml","severity":"LOW","surface":"host",
+     "intrusion":"Binary created {mins} min ago issued {n} DNS lookups on {host}.",
+     "benign":"Binary created {mins} min ago issued {n} DNS lookups on {host}.",
+     "benign_cause":"a freshly built binary running its integration tests"},
+
+    {"id":"T-16","phase":"exfil","rule":"File Download from or Upload to Hosting Service","provenance":"elastic","ref":"linux/command_and_control_file_hosting_service.toml","severity":"LOW","surface":"network",
+     "intrusion":"{size} transferred to an external file hosting domain from {host}.",
+     "benign":"{size} transferred to an external file hosting domain from {host}.",
+     "benign_cause":"a model artefact published to the team's usual sharing service"},
+
+    {"id":"T-17","phase":"exfil","rule":"Outbound volume above baseline to permitted destination","provenance":"custom","ref":"network volumetric rule","severity":"LOW","surface":"network",
+     "intrusion":"{size} egress to mirror proxy in {mins} min. Container baseline {base} per hour. Destination is on the permitted egress allowlist.",
+     "benign":"{size} egress to mirror proxy in {mins} min. Container baseline {base} per hour. Destination is on the permitted egress allowlist.",
+     "benign_cause":"a large image layer pull after a base image change"},
+
+    {"id":"T-18","phase":"exfil","rule":"Archive created and removed within minutes","provenance":"custom","ref":"host file integrity rule","severity":"LOW","surface":"host",
+     "intrusion":"Archive {path} created ({size}) and deleted {mins} min later on {host}.",
+     "benign":"Archive {path} created ({size}) and deleted {mins} min later on {host}.",
+     "benign_cause":"an intermediate build artefact cleaned up by the job's teardown step"},
+
+    {"id":"T-19","phase":"exfil","rule":"DNS Request to Suspicious File Upload/Download Service","provenance":"elastic","ref":"linux/command_and_control_dns_file_sharing_service.toml","severity":"LOW","surface":"network",
+     "intrusion":"{n} lookups for file sharing domains from {host}, none seen from this pool before.",
+     "benign":"{n} lookups for file sharing domains from {host}, none seen from this pool before.",
+     "benign_cause":"a dependency whose documentation build pulls example data from a sharing link"},
+
+    {"id":"T-20","phase":"c2","rule":"Periodic outbound connection pattern","provenance":"custom","ref":"network behavioural rule, RITA-style beaconing","severity":"INFO","surface":"network",
+     "intrusion":"Connections to mirror proxy at {interval}s +/- {jitter}s intervals for {mins} min. Destination is on the permitted egress allowlist.",
+     "benign":"Connections to mirror proxy at {interval}s +/- {jitter}s intervals for {mins} min. Destination is on the permitted egress allowlist.",
+     "benign_cause":"a telemetry heartbeat on a fixed poll interval"},
+
+    {"id":"T-21","phase":"c2","rule":"Long-lived connection to permitted destination","provenance":"custom","ref":"network flow rule","severity":"INFO","surface":"network",
+     "intrusion":"Single connection open {hrs}h to mirror proxy from {ctr}. Pool median session {med}s.",
+     "benign":"Single connection open {hrs}h to mirror proxy from {ctr}. Pool median session {med}s.",
+     "benign_cause":"a long-running download over a slow link, or a keepalive held by a client library"},
+
+    {"id":"T-22","phase":"c2","rule":"Repeated connection retries after block","provenance":"custom","ref":"network flow rule","severity":"LOW","surface":"network",
+     "intrusion":"{n} blocked outbound attempts to {k} distinct destinations from {ctr} over {mins} min.",
+     "benign":"{n} blocked outbound attempts to {k} distinct destinations from {ctr} over {mins} min.",
+     "benign_cause":"a library with a hardcoded upstream that the allowlist does not include, retrying on failure"},
+
+    {"id":"T-23","phase":"c2","rule":"Outbound pattern resumes after container restart","provenance":"custom","ref":"host behavioural rule","severity":"INFO","surface":"host",
+     "intrusion":"Container {ctr} restarted; identical outbound interval pattern resumed within {secs}s.",
+     "benign":"Container {ctr} restarted; identical outbound interval pattern resumed within {secs}s.",
+     "benign_cause":"a service resuming its normal poll schedule after a restart"},
+
+    {"id":"T-24","phase":"evasion","rule":"Audit log gap on host","provenance":"custom","ref":"log continuity rule","severity":"LOW","surface":"host",
+     "intrusion":"No audit records from {host} for {mins} min. Agent reports healthy either side of the gap.",
+     "benign":"No audit records from {host} for {mins} min. Agent reports healthy either side of the gap.",
+     "benign_cause":"agent restart during node patching, or a shipper backlog"},
+
+    {"id":"T-25","phase":"evasion","rule":"Shell history file truncated","provenance":"custom","ref":"host file integrity rule","severity":"LOW","surface":"host",
+     "intrusion":"History file for the service account on {host} reduced from {before} to {after} lines.",
+     "benign":"History file for the service account on {host} reduced from {before} to {after} lines.",
+     "benign_cause":"container image rebuild resetting the filesystem"},
+
+    {"id":"T-26","phase":"evasion","rule":"System binary name executed from unexpected path","provenance":"custom","ref":"host process rule","severity":"LOW","surface":"host",
+     "intrusion":"Process named {proc} executed from {path} on {host}, not the packaged location.",
+     "benign":"Process named {proc} executed from {path} on {host}, not the packaged location.",
+     "benign_cause":"a tool installed into a user-local bin directory by a setup script"},
+
+    {"id":"T-27","phase":"k8s","rule":"Kubernetes Secret get or list from Node or Pod Service Account","provenance":"elastic","ref":"kubernetes/credential_access_kubernetes_secret_read_by_node_or_pod_service_account.toml","severity":"LOW","surface":"k8s-audit",
+     "intrusion":"Service account {sa} read {n} secrets via the API. SA is shared across {k} CI pipelines. Read scope.",
+     "benign":"Service account {sa} read {n} secrets via the API. SA is shared across {k} CI pipelines. Read scope.",
+     "benign_cause":"the shared CI credential doing exactly what it always does at the start of a pipeline run"},
+
+    {"id":"T-28","phase":"k8s","rule":"Kubernetes Rapid Secret GET Activity Against Multiple Objects","provenance":"elastic","ref":"kubernetes/credential_access_kubernetes_rapid_secret_get.toml","severity":"LOW","surface":"k8s-audit",
+     "intrusion":"{n} secret GET calls against {k} distinct objects in {secs}s by {sa}.",
+     "benign":"{n} secret GET calls against {k} distinct objects in {secs}s by {sa}.",
+     "benign_cause":"a secrets-sync controller reconciling after a config change"},
+
+    {"id":"T-29","phase":"k8s","rule":"Kubernetes Service Account Token Created via TokenRequest API","provenance":"elastic","ref":"kubernetes/credential_access_kubernetes_tokenrequest.toml","severity":"LOW","surface":"k8s-audit",
+     "intrusion":"{n} tokens minted for {sa} via TokenRequest in {mins} min.",
+     "benign":"{n} tokens minted for {sa} via TokenRequest in {mins} min.",
+     "benign_cause":"short-lived token rotation working as designed under a burst of pod starts"},
+
+    {"id":"T-30","phase":"k8s","rule":"Kubernetes Privileged Pod Created","provenance":"elastic","ref":"kubernetes/privilege_escalation_kubernetes_privileged_pod_created.toml","severity":"LOW","surface":"k8s-audit",
+     "intrusion":"Privileged pod created in ns:{ns} by {sa}.",
+     "benign":"Privileged pod created in ns:{ns} by {sa}.",
+     "benign_cause":"a node-level agent that legitimately requires privilege, redeployed"},
+
+    {"id":"T-31","phase":"k8s","rule":"Kubernetes Container Created with Excessive Linux Capabilities","provenance":"elastic","ref":"kubernetes/privilege_escalation_kubernetes_excessive_capabilities.toml","severity":"LOW","surface":"k8s-audit",
+     "intrusion":"Container in ns:{ns} requested {k} additional capabilities.",
+     "benign":"Container in ns:{ns} requested {k} additional capabilities.",
+     "benign_cause":"a profiling sidecar that needs elevated capabilities to read counters"},
+
+    {"id":"T-32","phase":"k8s","rule":"Kubernetes Denied Service Account Request via Unusual User Agent","provenance":"elastic","ref":"kubernetes/discovery_kubernetes_denied_serviceaccount_request.toml","severity":"LOW","surface":"k8s-audit",
+     "intrusion":"{n} denied requests by {sa} from user agent '{ua}'.",
+     "benign":"{n} denied requests by {sa} from user agent '{ua}'.",
+     "benign_cause":"a client library upgrade that changed its user agent string, hitting a stale RBAC binding"},
+
+    {"id":"T-33","phase":"supply-chain","rule":"Package retrieved outside declared dependency set","provenance":"custom","ref":"SCA allowlist check","severity":"LOW","surface":"proxy",
+     "intrusion":"{n} packages fetched via mirror proxy, none in the lockfile or its resolved transitive set.",
+     "benign":"{n} packages fetched via mirror proxy, none in the lockfile or its resolved transitive set.",
+     "benign_cause":"a lockfile that drifted from the manifest after a manual edit"},
+
+    {"id":"T-34","phase":"supply-chain","rule":"Resolved package version differs from lockfile pin","provenance":"custom","ref":"SCA integrity check","severity":"LOW","surface":"proxy",
+     "intrusion":"{n} packages resolved to versions other than the pinned ones.",
+     "benign":"{n} packages resolved to versions other than the pinned ones.",
+     "benign_cause":"a yanked release forcing the resolver to fall back"},
+
+    {"id":"T-35","phase":"supply-chain","rule":"Mirror upstream fetch for previously uncached package","provenance":"custom","ref":"proxy cache rule","severity":"LOW","surface":"proxy",
+     "intrusion":"Mirror proxy reached upstream for {n} packages never before requested in this pool.",
+     "benign":"Mirror proxy reached upstream for {n} packages never before requested in this pool.",
+     "benign_cause":"first run of a new project pulling its dependency tree"},
+
+    {"id":"T-36","phase":"supply-chain","rule":"Build artefact checksum changed between runs","provenance":"custom","ref":"CI integrity check","severity":"LOW","surface":"ci",
+     "intrusion":"Artefact {path} checksum differs from the previous run with no source change recorded.",
+     "benign":"Artefact {path} checksum differs from the previous run with no source change recorded.",
+     "benign_cause":"a non-reproducible build embedding a timestamp"},
+
+    {"id":"T-37","phase":"tailscale","rule":"Potential Tunneling via Tailscaled","provenance":"elastic","ref":"linux/command_and_control_tunneling_via_tailscaled.toml","severity":"LOW","surface":"host",
+     "intrusion":"tailscaled activity observed on {host}, not part of the deployed agent set.",
+     "benign":"tailscaled activity observed on {host}, not part of the deployed agent set.",
+     "benign_cause":"an engineer's remote access tool installed during an incident bridge last month"},
+
+    {"id":"T-38","phase":"tailscale","rule":"New device joined mesh network","provenance":"custom","ref":"network inventory rule","severity":"INFO","surface":"network",
+     "intrusion":"Device {dev} joined the mesh, first seen {mins} min ago.",
+     "benign":"Device {dev} joined the mesh, first seen {mins} min ago.",
+     "benign_cause":"a new starter's laptop enrolled this morning"},
+
+    {"id":"T-39","phase":"cloud","rule":"AWS STS GetCallerIdentity API Called for the First Time","provenance":"elastic","ref":"aws/discovery_sts_getcalleridentity_first_time.toml","severity":"LOW","surface":"cloudtrail",
+     "intrusion":"GetCallerIdentity called by {principal}, no prior record for this principal.",
+     "benign":"GetCallerIdentity called by {principal}, no prior record for this principal.",
+     "benign_cause":"a newly provisioned role calling it as the first step of its startup check"},
+
+    {"id":"T-40","phase":"cloud","rule":"AWS Access Token Used from Multiple Addresses","provenance":"elastic","ref":"aws/credential_access_token_multiple_addresses.toml","severity":"LOW","surface":"cloudtrail",
+     "intrusion":"Token for {principal} used from {k} source addresses within {mins} min.",
+     "benign":"Token for {principal} used from {k} source addresses within {mins} min.",
+     "benign_cause":"a horizontally scaled service whose pods sit behind different NAT addresses"}
+  ],
+
+  "null_templates": [
+    {"id":"N-01","rule":"Certificate approaching expiry","provenance":"custom","severity":"LOW","text":"TLS certificate for {svc} expires in {days} days. Renewal job scheduled."},
+    {"id":"N-02","rule":"Scheduled backup completed with warnings","provenance":"custom","severity":"LOW","text":"Nightly backup for {svc} completed; {n} files skipped as in use."},
+    {"id":"N-03","rule":"Node rebooted for patching","provenance":"custom","severity":"INFO","text":"{host} rebooted at {time} under change ticket {chg}."},
+    {"id":"N-04","rule":"Health check timeout","provenance":"custom","severity":"LOW","text":"{svc} readiness probe timed out {n} times in {mins} min, recovered."},
+    {"id":"N-05","rule":"Disk usage above threshold","provenance":"custom","severity":"LOW","text":"{host} /var at {pct}% capacity."},
+    {"id":"N-06","rule":"Log rotation delayed","provenance":"custom","severity":"INFO","text":"Log rotation for {svc} ran {mins} min late."},
+    {"id":"N-07","rule":"NTP drift above threshold","provenance":"custom","severity":"LOW","text":"{host} clock drift {ms}ms, corrected."},
+    {"id":"N-08","rule":"Container terminated out of memory","provenance":"custom","severity":"LOW","text":"Container {ctr} OOM killed, restarted by the scheduler."},
+    {"id":"N-09","rule":"Image pull retried","provenance":"custom","severity":"INFO","text":"Image pull for {svc} retried {n} times, succeeded."},
+    {"id":"N-10","rule":"Scheduled vulnerability scan started","provenance":"custom","severity":"INFO","text":"Authenticated scan of {h} hosts started under change ticket {chg}."},
+    {"id":"N-11","rule":"DNS resolver failover","provenance":"custom","severity":"LOW","text":"Primary resolver unreachable for {secs}s, secondary served {n} queries."},
+    {"id":"N-12","rule":"Cron job exceeded expected runtime","provenance":"custom","severity":"LOW","text":"Job {svc} ran {mins} min against an expected {exp} min."}
+  ]
+}
