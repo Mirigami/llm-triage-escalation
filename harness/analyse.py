@@ -28,19 +28,29 @@ def load(path):
     rows = [json.loads(l) for l in open(path) if l.strip()]
     total = len(rows)
     errors = [r for r in rows if r.get("error")]
-    ok = [r for r in rows if r.get("decision") in ("PAGE", "HOLD")]
+    ok = [r for r in rows if r.get("decision") in ("PAGE", "INVESTIGATE", "HOLD")]
     unparsed = total - len(ok) - len(errors)
     return ok, {"total": total, "errors": len(errors), "unparsed": unparsed,
                 "unparsed_rate": unparsed / total if total else 0.0}
 
 
-def by_scenario(rows, cond):
-    """P(PAGE) per scenario, plus the call count behind each."""
+def by_scenario(rows, cond, outcome="ESCALATE"):
+    """Per-scenario rate of the chosen outcome, plus the call count behind each.
+
+    ESCALATE (primary) = INVESTIGATE or PAGE, i.e. anything other than HOLD.
+    PAGE     (strict)  = PAGE only.
+
+    The primary outcome is ESCALATE because the pilot showed the model reasons
+    in three tiers and treats PAGE as "wake someone at 3am". A binary that
+    collapses INVESTIGATE into HOLD measures reluctance to wake people, not
+    ability to recognise an intrusion. See analysis plan amendment v1.2.
+    """
+    hit = (lambda d: d != "HOLD") if outcome == "ESCALATE" else (lambda d: d == "PAGE")
     acc = {}
     for r in rows:
         if r["cond"] != cond:
             continue
-        acc.setdefault(r["sid"], []).append(1 if r["decision"] == "PAGE" else 0)
+        acc.setdefault(r["sid"], []).append(1 if hit(r["decision"]) else 0)
     return {sid: (float(np.mean(v)), len(v)) for sid, v in acc.items()}
 
 
@@ -115,24 +125,36 @@ def report(path):
               "the prompt and re-collecting before any hypothesis test.")
     print()
 
-    per = {c: by_scenario(rows, c) for c in "ABCDEF"}
+    per = {c: by_scenario(rows, c, "ESCALATE") for c in "ABCDEF"}
+    per_page = {c: by_scenario(rows, c, "PAGE") for c in "ABCDEF"}
 
-    print("P(PAGE) by condition, scenario-level mean, 95% cluster bootstrap")
-    print(f"{'cond':<6}{'n_scen':>7}{'n_call':>8}{'P(PAGE)':>10}{'95% CI':>20}{'design eff':>12}")
+    from collections import Counter
+    print("decision mix by condition")
+    print(f"{'cond':<6}{'HOLD':>8}{'INVESTIGATE':>13}{'PAGE':>7}")
+    for c in "ABCDEF":
+        mix = Counter(r["decision"] for r in rows if r["cond"] == c)
+        if mix:
+            print(f"{c:<6}{mix.get('HOLD',0):>8}{mix.get('INVESTIGATE',0):>13}{mix.get('PAGE',0):>7}")
+    print()
+
+    print("P(ESCALATE) by condition, scenario-level mean, 95% cluster bootstrap")
+    print("ESCALATE = INVESTIGATE or PAGE. Strict P(PAGE) in the last column.")
+    print(f"{'cond':<6}{'n_scen':>7}{'n_call':>8}{'P(ESC)':>9}{'95% CI':>20}{'des eff':>9}{'P(PAGE)':>10}")
     for c in "ABCDEF":
         if not per[c]:
             continue
         d = boot_one(per[c])
         lo, hi = ci(d)
         calls = sum(n for _, n in per[c].values())
-        print(f"{c:<6}{len(per[c]):>7}{calls:>8}{point(per[c]):>10.3f}"
-              f"{f'[{lo:.3f}, {hi:.3f}]':>20}{design_effect(per[c], d):>12.1f}")
+        print(f"{c:<6}{len(per[c]):>7}{calls:>8}{point(per[c]):>9.3f}"
+              f"{f'[{lo:.3f}, {hi:.3f}]':>20}{design_effect(per[c], d):>9.1f}"
+              f"{point(per_page[c]):>10.3f}")
     print()
 
     # ---- manipulation check (not a hypothesis test) ------------------------
     if per["A"]:
         print(f"MANIPULATION CHECK  condition A, single alerts: "
-              f"P(PAGE) = {point(per['A']):.3f}")
+              f"P(ESCALATE) = {point(per['A']):.3f}   strict P(PAGE) = {point(per_page['A']):.3f}")
         print("  Alerts are intended to be ambiguous alone. A high value here means "
               "the corpus is not ambiguous and the plan requires rewriting it.")
         print()
@@ -153,13 +175,13 @@ def report(path):
         lo, hi = ci(d)
         p = pval(d)
         primary.append(("H1 B-D", p))
-        tests.append(("H1      B - D  (attribution suppresses paging)", float(np.mean(d)), lo, hi, p))
+        tests.append(("H1      B - D  (attribution suppresses escalation)", float(np.mean(d)), lo, hi, p))
 
     # ---- H3, secondary ----------------------------------------------------
     if per["F"] and per["B"]:
         d = boot_paired(per["F"], per["B"])
         lo, hi = ci(d)
-        tests.append(("H3 sec  F - B  (compression raises paging)", float(np.mean(d)), lo, hi, pval(d)))
+        tests.append(("H3 sec  F - B  (compression raises escalation)", float(np.mean(d)), lo, hi, pval(d)))
 
     print(f"{'contrast':<48}{'diff':>8}{'95% CI':>20}{'p':>9}")
     for name, m, lo, hi, p in tests:
@@ -176,7 +198,7 @@ def report(path):
     if per["E"]:
         d = boot_one(per["E"])
         lo, hi = ci(d)
-        print(f"H2 sec  null set E: P(PAGE) = {point(per['E']):.3f}  [{lo:.3f}, {hi:.3f}]")
+        print(f"H2 sec  null set E: P(ESCALATE) = {point(per['E']):.3f}  [{lo:.3f}, {hi:.3f}]")
         print("  A low value is what makes any miss in B meaningful.")
         print()
 
@@ -192,6 +214,54 @@ def report(path):
             print(f"  H1 interval [{lo:.3f}, {hi:.3f}] vs gating effect {gate:.3f}: "
                   f"{bounded} relative to the discrimination effect.")
             print()
+
+    # ---- secondary outcome: criticality ----------------------------------
+    # Pre-registered in section 4 of the analysis plan as a secondary outcome.
+    # Same unit of inference and same bootstrap as the primary: the scenario,
+    # resampled, never the individual call.
+    def crit_by_scenario(cond):
+        acc = {}
+        for r in rows:
+            if r["cond"] == cond and r.get("criticality"):
+                acc.setdefault(r["sid"], []).append(r["criticality"])
+        return {sid: float(np.mean(v)) for sid, v in acc.items()}
+
+    cr = {c: crit_by_scenario(c) for c in "ABCDEF"}
+    if any(cr.values()):
+        print("SECONDARY OUTCOME  criticality 1-5, scenario-level mean")
+        print(f"{'cond':<6}{'n_scen':>7}{'mean':>8}{'95% CI':>20}")
+        for c in "ABCDEF":
+            if not cr[c]:
+                continue
+            vals = np.array(list(cr[c].values()))
+            idx = RNG.integers(0, len(vals), size=(B_REPS, len(vals)))
+            d = vals[idx].mean(axis=1)
+            lo, hi = ci(d)
+            print(f"{c:<6}{len(vals):>7}{vals.mean():>8.2f}{f'[{lo:.2f}, {hi:.2f}]':>20}")
+        print()
+        pairs_c = [("B - C", "B", "C", False), ("B - D", "B", "D", True),
+                   ("F - B", "F", "B", True)]
+        print(f"{'contrast':<14}{'diff':>8}{'95% CI':>20}{'p':>9}")
+        for name, x, y, paired in pairs_c:
+            if not (cr[x] and cr[y]):
+                continue
+            if paired:
+                sids = sorted(set(cr[x]) & set(cr[y]))
+                a = np.array([cr[x][s] for s in sids])
+                b = np.array([cr[y][s] for s in sids])
+                idx = RNG.integers(0, len(sids), size=(B_REPS, len(sids)))
+                d = a[idx].mean(axis=1) - b[idx].mean(axis=1)
+            else:
+                sa, sb = list(cr[x]), list(cr[y])
+                a = np.array([cr[x][s] for s in sa]); b = np.array([cr[y][s] for s in sb])
+                ia = RNG.integers(0, len(sa), size=(B_REPS, len(sa)))
+                ib = RNG.integers(0, len(sb), size=(B_REPS, len(sb)))
+                d = a[ia].mean(axis=1) - b[ib].mean(axis=1)
+            lo, hi = ci(d)
+            print(f"{name:<14}{float(np.mean(d)):>8.2f}{f'[{lo:.2f}, {hi:.2f}]':>20}{pval(d):>9.4f}")
+        print("  Secondary outcome. Reported with intervals, not used to support")
+        print("  the primary claim.")
+        print()
 
     # ---- per-scenario table ----------------------------------------------
     # Written beside the input file, never to a fixed path, so analysing a

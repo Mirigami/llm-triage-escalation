@@ -48,7 +48,7 @@ def synth(path, p_b, p_c, p_d, p_e, reps=10):
                 rows.append({
                     "key": f"{cond}|{s['sid']}|-|{r}", "cond": cond, "sid": s["sid"],
                     "family": s["family"], "story": s["story"], "alert": None, "rep": r,
-                    "decision": "PAGE" if RNG.random() < p_s else "HOLD",
+                    "decision": "INVESTIGATE" if RNG.random() < p_s else "HOLD",
                     "criticality": 3, "raw": "synthetic",
                 })
         realised[cond] = float(np.mean(ps))
@@ -123,8 +123,10 @@ def main():
             fails.append(f"FIRED ON NOISE: p={pv:.4f} under a true null")
 
         # ---- 3. design effect must exceed 1 when scenarios vary ------------
-        de = [float(l.split()[-1]) for l in txt.splitlines()
-              if l.strip().startswith(("B ", "C ", "D ")) and len(l.split()) >= 6]
+        # Row layout: cond n_scen n_call P(ESC) [lo, hi] design_eff P(PAGE)
+        # so the design effect is the second-to-last field, not the last.
+        de = [float(l.split()[-2]) for l in txt.splitlines()
+              if l.strip().startswith(("B ", "C ", "D ")) and len(l.split()) >= 8]
         print(f"design effects   {de}")
         if de and max(de) <= 1.5:
             fails.append("design effect near 1 despite between-scenario variance; "
